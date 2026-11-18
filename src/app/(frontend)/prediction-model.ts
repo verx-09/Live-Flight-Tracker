@@ -75,6 +75,7 @@ export type PredictionInput = {
   borderProcessing: string
   exceptionalHazard: string
   curfewPressure: string
+  liveDelayMinutes?: number
 }
 
 export type PredictionResult = {
@@ -98,41 +99,20 @@ function isAllowed(value: string, list: readonly string[]) {
 }
 
 export function isValidPredictionInput(input: PredictionInput) {
-  const categoricalChecks = [
-    isAllowed(input.airline, predictionOptions.airline),
-    isAllowed(input.origin, predictionOptions.airport),
-    isAllowed(input.destination, predictionOptions.airport),
-    isAllowed(input.departureWindow, predictionOptions.departureWindow),
-    isAllowed(input.dayType, predictionOptions.dayType),
-    isAllowed(input.season, predictionOptions.season),
-    isAllowed(input.weather, predictionOptions.weather),
-    isAllowed(input.airTraffic, predictionOptions.airTraffic),
-    isAllowed(input.inboundAircraft, predictionOptions.inboundAircraft),
-    isAllowed(input.maintenance, predictionOptions.maintenance),
-    isAllowed(input.crewStatus, predictionOptions.crewStatus),
-    isAllowed(input.security, predictionOptions.security),
-    isAllowed(input.distanceBand, predictionOptions.distanceBand),
-    isAllowed(input.groundStop, predictionOptions.groundStop),
-    isAllowed(input.runwayStatus, predictionOptions.runwayStatus),
-    isAllowed(input.gateStatus, predictionOptions.gateStatus),
-    isAllowed(input.deicing, predictionOptions.deicing),
-    isAllowed(input.turnaround, predictionOptions.turnaround),
-    isAllowed(input.groundHandling, predictionOptions.groundHandling),
-    isAllowed(input.boarding, predictionOptions.boarding),
-    isAllowed(input.connectionPressure, predictionOptions.connectionPressure),
-    isAllowed(input.airspaceRestriction, predictionOptions.airspaceRestriction),
-    isAllowed(input.laborAction, predictionOptions.laborAction),
-    isAllowed(input.airportSystems, predictionOptions.airportSystems),
-    isAllowed(input.borderProcessing, predictionOptions.borderProcessing),
-    isAllowed(input.exceptionalHazard, predictionOptions.exceptionalHazard),
-    isAllowed(input.curfewPressure, predictionOptions.curfewPressure),
-  ]
+  if (!input.flightNumber?.trim() || !input.airline?.trim() || !input.origin?.trim() || !input.destination?.trim()) {
+    return false
+  }
+
+  if (input.origin.trim().toUpperCase() === input.destination.trim().toUpperCase()) {
+    return false
+  }
+
   const numericChecks = Object.entries(numericLimits).every(([key, [minimum, maximum]]) => {
     const value = input[key as keyof typeof numericLimits]
     return Number.isFinite(value) && value >= minimum && value <= maximum
   })
 
-  return categoricalChecks.every(Boolean) && numericChecks && input.origin !== input.destination
+  return numericChecks
 }
 
 export function calculateDelayPrediction(input: PredictionInput): PredictionResult {
@@ -281,59 +261,66 @@ export function calculateDelayPrediction(input: PredictionInput): PredictionResu
     : 0
 
   let score = -1.85
-  score += add(`${input.airline} operating profile`, airlineImpact[input.airline])
-  score += add(`${input.weather} weather`, weatherImpact[input.weather])
-  score += add(`${input.airTraffic.toLowerCase()} air traffic`, trafficImpact[input.airTraffic])
+  score += add(`${input.airline} operating profile`, airlineImpact[input.airline] ?? 0.05)
+  score += add(`${input.weather} weather`, weatherImpact[input.weather] ?? 0.0)
+  score += add(`${(input.airTraffic || '').toLowerCase()} air traffic`, trafficImpact[input.airTraffic] ?? 0.0)
   score += add(
-    `${input.inboundAircraft.toLowerCase()} inbound aircraft`,
-    inboundImpact[input.inboundAircraft],
+    `${(input.inboundAircraft || '').toLowerCase()} inbound aircraft`,
+    inboundImpact[input.inboundAircraft] ?? 0.0,
   )
-  score += add(input.maintenance.toLowerCase(), maintenanceImpact[input.maintenance])
-  score += add(input.crewStatus.toLowerCase(), crewImpact[input.crewStatus])
-  score += add(`${input.security.toLowerCase()} security`, securityImpact[input.security])
+  score += add((input.maintenance || '').toLowerCase(), maintenanceImpact[input.maintenance] ?? 0.0)
+  score += add((input.crewStatus || '').toLowerCase(), crewImpact[input.crewStatus] ?? 0.0)
+  score += add(`${(input.security || '').toLowerCase()} security`, securityImpact[input.security] ?? 0.0)
   score += add(
-    `${input.departureWindow.toLowerCase()} departure`,
-    scheduleImpact[input.departureWindow],
+    `${(input.departureWindow || '').toLowerCase()} departure`,
+    scheduleImpact[input.departureWindow] ?? 0.0,
   )
-  score += add(`${input.season.toLowerCase()} season`, seasonImpact[input.season])
-  score += add(input.distanceBand.toLowerCase(), distanceImpact[input.distanceBand])
+  score += add(`${(input.season || '').toLowerCase()} season`, seasonImpact[input.season] ?? 0.0)
+  score += add((input.distanceBand || '').toLowerCase(), distanceImpact[input.distanceBand] ?? 0.0)
   score += add('origin hub pressure', hubImpact)
-  score += add('airport congestion', (input.airportCongestion - 40) * 0.021)
-  score += add('wind speed', Math.max(0, input.windSpeedKph - 18) * 0.018)
-  score += add('low visibility', Math.max(0, 10 - input.visibilityKm) * 0.075)
-  score += add('precipitation', input.precipitationMm * 0.025)
-  score += add('extreme temperature', Math.max(0, Math.abs(input.temperatureC - 18) - 16) * 0.025)
+  score += add('airport congestion', ((input.airportCongestion ?? 45) - 40) * 0.021)
+  score += add('wind speed', Math.max(0, (input.windSpeedKph ?? 10) - 18) * 0.018)
+  score += add('low visibility', Math.max(0, 10 - (input.visibilityKm ?? 10)) * 0.075)
+  score += add('precipitation', (input.precipitationMm ?? 0) * 0.025)
+  score += add('extreme temperature', Math.max(0, Math.abs((input.temperatureC ?? 20) - 18) - 16) * 0.025)
   if (input.dayType === 'Public holiday') score += add('public holiday demand', 0.44)
   if (input.dayType === 'Weekend') score += add('weekend schedule', 0.08)
-  score += add(input.groundStop.toLowerCase(), groundStopImpact[input.groundStop])
-  score += add(input.runwayStatus.toLowerCase(), runwayImpact[input.runwayStatus])
-  score += add(input.gateStatus.toLowerCase(), gateImpact[input.gateStatus])
-  score += add(input.deicing.toLowerCase(), deicingImpact[input.deicing])
-  score += add(input.turnaround.toLowerCase(), turnaroundImpact[input.turnaround])
+  score += add((input.groundStop || '').toLowerCase(), groundStopImpact[input.groundStop] ?? 0.0)
+  score += add((input.runwayStatus || '').toLowerCase(), runwayImpact[input.runwayStatus] ?? 0.0)
+  score += add((input.gateStatus || '').toLowerCase(), gateImpact[input.gateStatus] ?? 0.0)
+  score += add((input.deicing || '').toLowerCase(), deicingImpact[input.deicing] ?? 0.0)
+  score += add((input.turnaround || '').toLowerCase(), turnaroundImpact[input.turnaround] ?? 0.0)
   score += add(
-    `${input.groundHandling.toLowerCase()} ground handling`,
-    handlingImpact[input.groundHandling],
+    `${(input.groundHandling || '').toLowerCase()} ground handling`,
+    handlingImpact[input.groundHandling] ?? 0.0,
   )
-  score += add(input.boarding.toLowerCase(), boardingImpact[input.boarding])
+  score += add((input.boarding || '').toLowerCase(), boardingImpact[input.boarding] ?? 0.0)
   score += add(
-    `${input.connectionPressure.toLowerCase()} connection pressure`,
-    connectionImpact[input.connectionPressure],
+    `${(input.connectionPressure || '').toLowerCase()} connection pressure`,
+    connectionImpact[input.connectionPressure] ?? 0.0,
   )
-  score += add(input.airspaceRestriction.toLowerCase(), airspaceImpact[input.airspaceRestriction])
-  score += add(input.laborAction.toLowerCase(), laborImpact[input.laborAction])
+  score += add((input.airspaceRestriction || '').toLowerCase(), airspaceImpact[input.airspaceRestriction] ?? 0.0)
+  score += add((input.laborAction || '').toLowerCase(), laborImpact[input.laborAction] ?? 0.0)
   score += add(
-    `${input.airportSystems.toLowerCase()} airport systems`,
-    systemsImpact[input.airportSystems],
+    `${(input.airportSystems || '').toLowerCase()} airport systems`,
+    systemsImpact[input.airportSystems] ?? 0.0,
   )
   score += add(
-    `${input.borderProcessing.toLowerCase()} border processing`,
-    borderImpact[input.borderProcessing],
+    `${(input.borderProcessing || '').toLowerCase()} border processing`,
+    borderImpact[input.borderProcessing] ?? 0.0,
   )
-  score += add(input.exceptionalHazard.toLowerCase(), hazardImpact[input.exceptionalHazard])
-  score += add(input.curfewPressure.toLowerCase(), curfewImpact[input.curfewPressure])
+  score += add((input.exceptionalHazard || '').toLowerCase(), hazardImpact[input.exceptionalHazard] ?? 0.0)
+  score += add((input.curfewPressure || '').toLowerCase(), curfewImpact[input.curfewPressure] ?? 0.0)
 
-  const probability = Math.min(98, Math.max(2, (1 / (1 + Math.exp(-score))) * 100))
-  const expectedDelayMinutes = Math.max(1, 3 + probability * 0.57 + Math.max(0, score) * 5)
+  let probability = Math.min(98, Math.max(2, (1 / (1 + Math.exp(-score))) * 100))
+  let expectedDelayMinutes = Math.max(1, 3 + probability * 0.57 + Math.max(0, score) * 5)
+
+  // Factor in live telemetry if the live flight is already delayed
+  if (input.liveDelayMinutes && input.liveDelayMinutes > 0) {
+    expectedDelayMinutes = Math.max(expectedDelayMinutes, input.liveDelayMinutes + 4)
+    probability = Math.min(98, Math.max(probability, 82 + Math.min(15, input.liveDelayMinutes * 0.25)))
+    impacts.unshift({ factor: `Live observed tarmac delay (+${input.liveDelayMinutes}m)`, impact: input.liveDelayMinutes })
+  }
   const riskLevel: PredictionResult['riskLevel'] =
     probability < 25 ? 'Low' : probability < 50 ? 'Moderate' : probability < 75 ? 'High' : 'Severe'
   const topFactors = impacts

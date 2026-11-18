@@ -576,7 +576,7 @@ function AnalysisWorkbench({
 
       <div className="analysis-unit">
         <div className="analysis-unit-title">
-          <span>Unit 01</span>
+          <span>U1</span>
           <h2>Descriptive statistics</h2>
         </div>
         <div className="analysis-grid">
@@ -659,7 +659,7 @@ function AnalysisWorkbench({
 
       <div className="analysis-unit">
         <div className="analysis-unit-title">
-          <span>Unit 02</span>
+          <span>U2</span>
           <h2>Probability & distributions</h2>
         </div>
         <div className="analysis-grid three">
@@ -760,7 +760,7 @@ function AnalysisWorkbench({
 
       <div className="analysis-unit">
         <div className="analysis-unit-title">
-          <span>Unit 03</span>
+          <span>U3</span>
           <h2>Normal distribution & sampling</h2>
         </div>
         <div className="analysis-grid three">
@@ -852,7 +852,7 @@ function AnalysisWorkbench({
 
       <div className="analysis-unit">
         <div className="analysis-unit-title">
-          <span>Unit 04</span>
+          <span>U4</span>
           <h2>Estimation, testing & regression</h2>
         </div>
         <div className="analysis-grid">
@@ -1057,6 +1057,10 @@ function PredictionApp() {
   const [searchStatus, setSearchStatus] = useState('')
   const [liveWeatherInfo, setLiveWeatherInfo] = useState<any>(null)
 
+  const airlineOptions = Array.from(new Set([...airlines, input.airline]))
+  const originOptions = Array.from(new Set([...airports, input.origin]))
+  const destOptions = Array.from(new Set([...airports, input.destination]))
+
   const update = <K extends keyof PredictionInput>(key: K, value: PredictionInput[K]) => {
     setInput((current) => ({ ...current, [key]: value }))
     setResult(null)
@@ -1094,32 +1098,58 @@ function PredictionApp() {
   }
 
   const selectFlight = async (flight: any) => {
-    const orig = flight.origin_iata && airports.includes(flight.origin_iata) ? flight.origin_iata : input.origin
-    const dest = flight.dest_iata && airports.includes(flight.dest_iata) ? flight.dest_iata : input.destination
-    const matchedAirline = airlines.find(a => flight.airline?.toLowerCase().includes(a.toLowerCase())) || input.airline
-    
+    const rawOrig = (flight.origin_iata || '').trim().toUpperCase()
+    const rawDest = (flight.dest_iata || '').trim().toUpperCase()
+    const orig = rawOrig && rawOrig !== 'N/A' ? rawOrig : input.origin
+    let dest = rawDest && rawDest !== 'N/A' ? rawDest : input.destination
+    if (orig === dest) {
+      dest = orig === 'JFK' ? 'LAX' : 'JFK'
+    }
+
+    const rawAirline = (flight.airline || '').trim()
+    const airlineName = rawAirline && rawAirline.toLowerCase() !== 'empty' ? rawAirline : input.airline
+    const liveDelay = typeof flight.delay_minutes === 'number' ? Math.max(0, flight.delay_minutes) : 0
+
+    // Deduce departure time window from scheduled_departure if available
+    let deducedWindow = input.departureWindow
+    if (flight.scheduled_departure) {
+      try {
+        const hour = new Date(flight.scheduled_departure).getUTCHours()
+        if (hour >= 4 && hour < 8) deducedWindow = 'Early morning'
+        else if (hour >= 8 && hour < 12) deducedWindow = 'Morning'
+        else if (hour >= 12 && hour < 17) deducedWindow = 'Afternoon'
+        else if (hour >= 17 && hour < 22) deducedWindow = 'Evening'
+        else deducedWindow = 'Late night'
+      } catch {}
+    }
+
     // Fetch live weather for origin airport
     let weatherData: any = null
     try {
-      weatherData = await fetchLiveWeather(orig)
+      weatherData = await fetchLiveWeather(orig, flight.origin_airport)
     } catch {}
 
     const updated: PredictionInput = {
       ...input,
       flightNumber: flight.flight_number || input.flightNumber,
-      airline: matchedAirline,
+      airline: airlineName,
       origin: orig,
       destination: dest,
+      departureWindow: deducedWindow,
+      departureDate: flight.scheduled_departure ? flight.scheduled_departure.slice(0, 10) : input.departureDate,
+      liveDelayMinutes: liveDelay,
       weather: weatherData?.weather_condition || input.weather,
       temperatureC: weatherData ? weatherData.temperature_c : input.temperatureC,
       windSpeedKph: weatherData ? weatherData.wind_speed_kph : input.windSpeedKph,
       visibilityKm: weatherData ? weatherData.visibility_km : input.visibilityKm,
       precipitationMm: weatherData ? weatherData.precipitation_mm : input.precipitationMm,
+      inboundAircraft: liveDelay > 30 ? 'Major delay' : liveDelay > 10 ? 'Slight delay' : 'On time',
+      airTraffic: liveDelay > 30 ? 'High' : 'Moderate',
     }
 
     setInput(updated)
     if (weatherData) setLiveWeatherInfo(weatherData)
-    setSearchStatus(`⚡ Loaded live data for ${flight.flight_number} (${matchedAirline}: ${orig} → ${dest})`)
+    setSearchStatus(`⚡ Live telemetry loaded for ${flight.flight_number} (${airlineName}: ${orig} → ${dest})${liveDelay > 0 ? ` · Current delay: +${liveDelay} min` : ' · On schedule'}`)
 
     // Trigger ML prediction with new input
     startTransition(async () => {
@@ -1411,19 +1441,19 @@ function PredictionApp() {
                 <SelectField
                   label="Airline"
                   value={input.airline}
-                  options={airlines}
+                  options={airlineOptions}
                   onChange={(value) => update('airline', value)}
                 />
                 <SelectField
                   label="Origin"
                   value={input.origin}
-                  options={airports}
+                  options={originOptions}
                   onChange={(value) => update('origin', value)}
                 />
                 <SelectField
                   label="Destination"
                   value={input.destination}
-                  options={airports}
+                  options={destOptions}
                   onChange={(value) => update('destination', value)}
                 />
                 <SelectField

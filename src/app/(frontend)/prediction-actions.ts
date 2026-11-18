@@ -85,9 +85,13 @@ export async function fetchLiveRadarFlights(limit = 15) {
   return { count: 0, flights: [] }
 }
 
-export async function fetchLiveWeather(airportCode: string) {
+export async function fetchLiveWeather(airportCode: string, locationHint?: string) {
   try {
-    const res = await fetch(`${PYTHON_API}/api/weather/${airportCode}`, {
+    let url = `${PYTHON_API}/api/weather/${encodeURIComponent(airportCode)}`
+    if (locationHint) {
+      url += `?location_hint=${encodeURIComponent(locationHint)}`
+    }
+    const res = await fetch(url, {
       cache: 'no-store',
       signal: AbortSignal.timeout(5000),
     })

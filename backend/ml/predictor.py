@@ -33,6 +33,17 @@ def predict_delay_ml(input_data: Dict[str, Any]) -> Dict[str, Any]:
     prob = 1.0 / (1.0 + np.exp(-(expected_delay - 22.0) / 8.5)) * 100.0
     prob = round(float(np.clip(prob, 2.0, 98.0)), 1)
     
+    # Analyze contributing factors
+    impacts = []
+
+    # Incorporate live observed delay from radar feed if available
+    live_delay = input_data.get("liveDelayMinutes")
+    if live_delay and float(live_delay) > 0:
+        live_delay_val = float(live_delay)
+        expected_delay = max(expected_delay, live_delay_val + 4.0)
+        prob = max(prob, min(98.0, 84.0 + live_delay_val * 0.2))
+        impacts.append({"factor": f"Live reported delay (+{int(live_delay_val)}m)", "impact": round(live_delay_val, 1)})
+
     # Risk level classification
     if prob < 25.0:
         risk_level = "Low"
@@ -42,10 +53,7 @@ def predict_delay_ml(input_data: Dict[str, Any]) -> Dict[str, Any]:
         risk_level = "High"
     else:
         risk_level = "Severe"
-        
-    # Analyze contributing factors
-    impacts = []
-    
+
     weather = input_data.get("weather", "Clear")
     if weather in ["Thunderstorm", "Snow", "Fog", "Rain"]:
         impacts.append({"factor": f"{weather} weather at airport", "impact": round(expected_delay * 0.32, 1)})

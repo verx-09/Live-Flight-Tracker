@@ -41,6 +41,8 @@ class PredictionPayload(BaseModel):
     borderProcessing: str = Field(default="Normal")
     exceptionalHazard: str = Field(default="None")
     curfewPressure: str = Field(default="None")
+    liveDelayMinutes: Optional[float] = Field(default=None)
+    originAirportName: Optional[str] = Field(default=None)
     enrichWithLiveWeather: Optional[bool] = Field(default=False)
 
 @router.post("")
@@ -52,7 +54,7 @@ async def predict_delay_endpoint(payload: PredictionPayload):
     live_weather_info = None
     if payload.enrichWithLiveWeather and payload.origin:
         try:
-            live_weather_info = await get_airport_weather(payload.origin)
+            live_weather_info = await get_airport_weather(payload.origin, location_hint=payload.originAirportName)
             if live_weather_info:
                 data["weather"] = live_weather_info.get("weather_condition", data["weather"])
                 data["temperatureC"] = live_weather_info.get("temperature_c", data["temperatureC"])
