@@ -1,0 +1,37 @@
+services:
+  # 1. Python ML & Live Aviation Backend
+  - type: web
+    name: flightstat-backend
+    env: python
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt && python ml/train_model.py
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: AVIATIONSTACK_API_KEY
+        value: 49e98eab0ff0ab6fdc64300d832b4530
+      - key: OPENWEATHER_API_KEY
+        value: f6474cb1608278cca987718bfbced9f1
+      - key: FRONTEND_URL
+        fromService:
+          type: web
+          name: flightstat-frontend
+          property: host
+
+  # 2. Next.js React Frontend
+  - type: web
+    name: flightstat-frontend
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: pnpm install && pnpm build
+    startCommand: pnpm start
+    envVars:
+      - key: PYTHON_BACKEND_URL
+        fromService:
+          type: web
+          name: flightstat-backend
+          property: host
+      - key: NODE_ENV
+        value: production
